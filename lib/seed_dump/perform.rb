@@ -13,6 +13,7 @@ module SeedDump
       @seed_rb = "" 
       @id_set_string = ""
       @model_dir = 'app/models/**/*.rb'
+      @carrierwave_uploader = "image"
     end
 
     def setup(env)
@@ -33,6 +34,7 @@ module SeedDump
       @opts['models']  = @opts['models'].split(',').collect {|x| x.underscore.singularize.camelize }
       @opts['schema']  = env['PG_SCHEMA']
       @opts['model_dir']  = env['MODEL_DIR'] || @model_dir
+      @opts['carrierwave'] = env["UPLOADER"] || @carrierwave_uploader
     end
 
     def loadModels
@@ -79,6 +81,7 @@ module SeedDump
       unless k == 'id' && !@opts['with_id']
         if (!(k == 'created_at' || k == 'updated_at') || @opts['timestamps'])
           a_s.push("#{k.to_sym.inspect} => #{v}")
+
         end
       end 
     end
@@ -151,12 +154,15 @@ module SeedDump
 
     #override the rails version of this function to NOT truncate strings
     def attribute_for_inspect(r,k)
-      value = r.attributes[k]
-      
+
+      @opts['carrierwave'] == k ?  value = r.send(k) : value = r.attributes[k]
+
       if value.is_a?(String) && value.length > 50
         "#{value}".inspect
       elsif value.is_a?(Date) || value.is_a?(Time)
         %("#{value.to_s(:db)}")
+      elsif r.send(k).is_a?(CarrierWave::Uploader::Base)
+        "File.open(#{value.path})"
       else
         value.inspect
       end
