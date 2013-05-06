@@ -6,14 +6,14 @@ module SeedDump
 
     def initialize
       @opts = {}
-      @ar_options = {} 
+      @ar_options = {}
       @indent = ""
       @models = []
       @last_record = []
-      @seed_rb = "" 
+      @seed_rb = ""
       @id_set_string = ""
       @model_dir = 'app/models/**/*.rb'
-      @carrierwave_uploader = "image"
+      @carrierwave_uploader = ["image"]
     end
 
     def setup(env)
@@ -34,7 +34,7 @@ module SeedDump
       @opts['models']  = @opts['models'].split(',').collect {|x| x.underscore.singularize.camelize }
       @opts['schema']  = env['PG_SCHEMA']
       @opts['model_dir']  = env['MODEL_DIR'] || @model_dir
-      @opts['carrierwave'] = env["UPLOADER"] || @carrierwave_uploader
+      @opts['carrierwave'] = env["UPLOADER"]  || (env["UPLOADER"] ? env["UPLOADER"] : @carrierwave_uploader)
     end
 
     def loadModels
@@ -59,7 +59,7 @@ module SeedDump
         require f
 
         puts "Detected model #{model}" if @opts['debug']
-        @models.push model if @opts['models'].include?(model) || @opts['models'].empty? 
+        @models.push model if @opts['models'].include?(model) || @opts['models'].empty?
       end
     end
 
@@ -76,14 +76,14 @@ module SeedDump
         v = v.to_s
       else
         v = attribute_for_inspect(r,k)
-      end 
+      end
 
       unless k == 'id' && !@opts['with_id']
         if (!(k == 'created_at' || k == 'updated_at') || @opts['timestamps'])
           a_s.push("#{k.to_sym.inspect} => #{v}")
 
         end
-      end 
+      end
     end
 
     def dumpModel(model)
@@ -94,53 +94,53 @@ module SeedDump
       rows = []
       arr = []
       arr = model.find(:all, @ar_options) unless @opts['no-data']
-      arr = arr.empty? ? [model.new] : arr 
+      arr = arr.empty? ? [model.new] : arr
 
-      arr.each_with_index { |r,i| 
+      arr.each_with_index { |r,i|
         attr_s = [];
         r.attributes.each do |k,v|
           if ((model.attr_accessible[:default].include? k) || @opts['without_protection'] || @opts['with_id'])
             dumpAttribute(attr_s,r,k,v)
-            @last_record.push k 
+            @last_record.push k
           end
         end
         rows.push "#{@indent}{ " << attr_s.join(', ') << " }"
-      } 
+      }
 
       if @opts['without_protection']
         options = ', :without_protection => true '
       end
-      
+
       if @opts['max']
         splited_rows = rows.each_slice(@opts['max']).to_a
         maxsarr = []
         splited_rows.each do |sr|
           maxsarr << "\n#{model}.create([\n" << sr.join(",\n") << "\n]#{options})\n"
-        end 
+        end
         maxsarr.join('')
       else
         "\n#{model}.create([\n" << rows.join(",\n") << "\n]#{options})\n"
       end
-      
+
     end
 
     def dumpModels
       @seed_rb = ""
       @models.sort.each do |model|
-          m = model.constantize
-          if m.ancestors.include?(ActiveRecord::Base)
-            puts "Adding #{model} seeds." if @opts['verbose']
+        m = model.constantize
+        if m.ancestors.include?(ActiveRecord::Base)
+          puts "Adding #{model} seeds." if @opts['verbose']
 
-            if @opts['skip_callbacks']
-              @seed_rb << "#{model}.reset_callbacks :save\n"
-              @seed_rb << "#{model}.reset_callbacks :create\n"
-              puts "Callbacks are disabled." if @opts['verbose']
-            end
-
-            @seed_rb << dumpModel(m) << "\n\n"
-          else
-            puts "Skipping non-ActiveRecord model #{model}..." if @opts['verbose']
+          if @opts['skip_callbacks']
+            @seed_rb << "#{model}.reset_callbacks :save\n"
+            @seed_rb << "#{model}.reset_callbacks :create\n"
+            puts "Callbacks are disabled." if @opts['verbose']
           end
+
+          @seed_rb << dumpModel(m) << "\n\n"
+        else
+          puts "Skipping non-ActiveRecord model #{model}..." if @opts['verbose']
+        end
       end
     end
 
@@ -155,22 +155,22 @@ module SeedDump
     #override the rails version of this function to NOT truncate strings
     def attribute_for_inspect(r,k)
 
-      @opts['carrierwave'] == k ?  value = r.send(k) : value = r.attributes[k]
+      @opts['carrierwave'].include?(k) ?  value = r.send(k) : value = r.attributes[k]
 
       if value.is_a?(String) && value.length > 50
         "#{value}".inspect
       elsif value.is_a?(Date) || value.is_a?(Time)
         %("#{value.to_s(:db)}")
-      elsif r.send(k).is_a?(CarrierWave::Uploader::Base)
-        "File.open(#{value.path})"
+      elsif value.is_a?(CarrierWave::Uploader::Base)
+        value.blank?? r.attributes[k].inspect : "File.open(File.join(Rails.root, 'public', '#{value.url}'))"
       else
         value.inspect
       end
     end
 
     def setSearchPath(path, append_public=true)
-        path_parts = [path.to_s, ('public' if append_public)].compact
-        ActiveRecord::Base.connection.schema_search_path = path_parts.join(',')
+      path_parts = [path.to_s, ('public' if append_public)].compact
+      ActiveRecord::Base.connection.schema_search_path = path_parts.join(',')
     end
 
     def run(env)
